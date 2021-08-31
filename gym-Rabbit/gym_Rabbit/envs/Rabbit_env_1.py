@@ -62,6 +62,7 @@ class RabbitEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         self.set_state(
             np.array([0,2,0,np.pi/6,-np.pi/3,0,0]),
             np.zeros(7))
+        # self.set_state(q,dq)
         return self._get_obs()
         # return
     def viewer_setup(self):
