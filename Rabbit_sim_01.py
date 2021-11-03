@@ -13,7 +13,7 @@ env.reset()
 env.set_state(q0,dq0)
 env.render()
 
-env.model.opt.timestep = 0.0001
+env.model.opt.timestep = 0.001
 env.viewer._paused = True
 # env.viewer._render_every_frame = True
 # env._time_per_render = 1
@@ -39,11 +39,11 @@ for _ in range(500000):
         stanceLeg = -stanceLeg
         t0 = t_total
 
-    Kp = 500
-    Kd = 20
+    Kp = 200
+    Kd = 10
 
-    Kp_torso = 500
-    Kd_torso = 20
+    Kp_torso = 200
+    Kd_torso = 10
 
     knee_straight_ref = -np.pi / 6
     knee_bending_ref = np.pi / 3

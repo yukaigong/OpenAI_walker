@@ -1,0 +1,17 @@
+from policies import actor
+import torch
+# network_1 = actor.FF_Actor(14,4)
+#
+# print(network_1.children)
+# print(network_1.children)
+
+network_2 = actor.Gaussian_FF_Actor(14,4,fixed_std = 1)
+
+network_2(torch.empty((14,)),deterministic = True,anneal=1)
+print(network_2.action)
+network_2(torch.empty((14,)),deterministic = True,anneal=1)
+print(network_2.action)
+network_2(torch.empty((14,)),deterministic = True,anneal=1)
+print(network_2.action)
+network_2(torch.empty((14,)),deterministic = True,anneal=1)
+print(network_2.action)
