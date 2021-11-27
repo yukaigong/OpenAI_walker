@@ -60,7 +60,7 @@ class RabbitEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         # import pdb
         # pdb.set_trace()
         self.set_state(
-            np.array([0,2,0,np.pi/6,-np.pi/3,0,0]),
+            np.array([0,1,0,np.pi/6,-np.pi/3,np.pi/6,-np.pi/3]),
             np.zeros(7))
         # self.set_state(q,dq)
         return self._get_obs()

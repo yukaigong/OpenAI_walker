@@ -37,7 +37,7 @@ class FF_Actor(nn.Module):
         return self.action
 
 class Gaussian_FF_Actor(nn.Module):
-    def __init__(self, state_dim, action_dim, layers = (256,256),fixed_std = 1):
+    def __init__(self, state_dim, action_dim, layers = (256,256), fixed_std = 1):
         super(Gaussian_FF_Actor, self).__init__()
 
         self.actor_layers = nn.ModuleList()
@@ -63,7 +63,9 @@ class Gaussian_FF_Actor(nn.Module):
         x = state
         for l in self.actor_layers:
             x = self.nonlinearity(l(x))
-        mean = self.network_out(x)
+        mean_unsat = self.network_out(x)
+        sat_torque = 200
+        mean = sat_torque*torch.tanh(mean_unsat)
 
         sd = self.fixed_std
 
@@ -85,6 +87,8 @@ class Gaussian_FF_Actor(nn.Module):
 
     def distribution(self, inputs):
         mu, sd = self._get_dist_params(inputs)
+        # import pdb
+        # pdb.set_trace()
         return torch.distributions.Normal(mu,sd)
 
 

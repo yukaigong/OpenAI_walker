@@ -12,6 +12,7 @@ from gym.utils import seeding
 def sample():
     # time.sleep(1)
     env = gym.make('gym_Rabbit:Rabbit-v1')
+
     env.reset()
     q0 = np.array([0, 0.8, 0, np.pi / 6, -np.pi / 3, np.pi / 12, -np.pi / 6])
     # print(q0)

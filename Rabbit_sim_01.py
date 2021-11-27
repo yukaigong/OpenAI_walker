@@ -7,19 +7,23 @@ from gym.utils import seeding
 env = gym.make('gym_Rabbit:Rabbit-v1')
 
 
-q0 = np.array([0,0.8,0,np.pi/6,-np.pi/3,np.pi/12,-np.pi/6])
+# q0 = np.array([0,0.8,0,np.pi/6,-np.pi/3,np.pi/12,-np.pi/6])
+q0 = np.array([0,2,0,np.pi/6,-np.pi/3,np.pi/12,-np.pi/6])
 dq0 = np.zeros(7)
+# env.model.jnt_limited = np.ones((7,), dtype=bool)
+env.model.jnt_range[[3, 5], :] = (np.pi / 13, np.pi * 11 / 13)
+env.model.jnt_range[[4, 6], :] = (-np.pi * 11 / 13, -np.pi / 13)
+# env.sim.model.jnt_range[[3, 5], :] = (np.pi / 13, np.pi * 11 / 13)
+# env.sim.model.jnt_range[[4, 6], :] = (-np.pi * 11 / 13, -np.pi / 13)
 env.reset()
-env.set_state(q0,dq0)
+# env.set_state(q0,dq0)
 env.render()
-
-env.model.opt.timestep = 0.001
+# env.model.opt.
+env.model.opt.timestep = 0.01
 env.viewer._paused = True
 # env.viewer._render_every_frame = True
 # env._time_per_render = 1
 # env.viewer._record_video = True
-env.render()
-
 
 t0 = 0
 stanceLeg = 1
@@ -83,7 +87,7 @@ for _ in range(500000):
 
 
 
-
+    # u = u.clip(min = -10, max = 10)
     # u = np.zeros(4)
     # u[4] = 32*9.81
     # u[0] = -Kp_torso * q[2] - Kd_torso * dq[2]
@@ -99,6 +103,7 @@ for _ in range(500000):
     # To regulate the render speed
     print('new iter')
     print(env.sim.data.time)
+    print(q)
     print(u)
     # frame skip Defined by Rabbit_env, in another folder
     sleep_time = (env.frame_skip*env.model.opt.timestep - time.time()%(env.frame_skip*env.model.opt.timestep))

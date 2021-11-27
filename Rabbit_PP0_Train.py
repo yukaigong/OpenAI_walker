@@ -87,6 +87,8 @@ class PPO:
         self.n_proc         = args['num_procs']
         self.grad_clip      = args['max_grad_norm']
         self.recurrent      = args['recurrent']
+        self.sim_timestep = args['sim_timestep']
+        self.ctrl_timestep = args['ctrl_timestep']
 
         self.total_steps = 0
         self.highest_reward = -1
@@ -100,11 +102,17 @@ class PPO:
         torch.save(policy, os.path.join(self.save_path,"actor"+filetype))
         torch.save(critic, os.path.joint(self.save_path, "critic" + filetype))
 
-    @ray.remote
-    def sample(self, policy, critic, min_steps, max_traj_len, determinisitic = False, anneal =1.0, term_thresh = 0 ):
+    # @ray.remote
+    @torch.no_grad()
+    def sample(self, policy, critic, min_steps, max_traj_len, deterministic = False, anneal =1.0, term_thresh = 0 ):
         # torch.set_num_threads(1)
         env = gym.make('gym_Rabbit:Rabbit-v1')
-
+        env.model.jnt_range[[3, 5], :] = (np.pi / 13, np.pi * 11 / 13)
+        env.model.jnt_range[[4, 6], :] = (-np.pi * 11 / 13, -np.pi / 13)
+        env.reset()
+        env.model.opt.timestep = self.sim_timestep
+        # env.model.opt.timestep = 0.001
+        env.frameskip = self.ctrl_timestep/self.sim_timestep
         memory = PPOBuffer(self.gamma, self.lam)
 
         num_steps  = 0
@@ -114,12 +122,18 @@ class PPO:
             done = False
             value = 0
             traj_len = 0
-
-            while not done and traj_len<max_traj_len:
-                action = policy(state,deterministic = False) # Should implement a probabilistic policy here for exploring
+            # print(state)
+            # while not done and traj_len<max_traj_len:
+            while state[1]>0.3 and state[1]<1.2 and traj_len < max_traj_len:
+                # print(state)
+                action = policy(state,deterministic = False, anneal = anneal) # Should implement a probabilistic policy here for exploring
+                # action = torch.clamp(action, min=-200, max=200)
+                # print(action)
+                # print(state)
                 value = critic(state)
+                # time.sleep(0.002)
                 next_state, reward, done, _ = env.step(action.detach().numpy())
-                reward = reward_func_01(next_state[0:7],next_state[7:],action.detach().numpy())
+                reward = reward_func_01(next_state[0:7],next_state[7:],action.detach().numpy()) + 1
                 memory.store(state.numpy(),action.detach().numpy(), reward, value.detach().numpy())
 
                 state = torch.Tensor(next_state)
@@ -148,7 +162,6 @@ class PPO:
 
             # update result
             result.append(ray.get(ready_ids[0]))
-
             # remove ready_ids from workers (O(n)) but n isn't that big
             workers.remove(ready_ids[0])
 
@@ -184,16 +197,20 @@ class PPO:
         policy = self.policy
         critic = self.critic
         old_policy = self.old_policy
-
+        policy_temp = self.policy
         values = critic(obs_batch)
-        pdf = policy.distribution(obs_batch)
+        try:
+            pdf = policy.distribution(obs_batch)
+        except:
+            import pdb
+            pdb.set_trace()
 
         with torch.no_grad():
             old_pdf = old_policy.distribution(obs_batch)
             old_log_probs = old_pdf.log_prob(action_batch).sum(-1, keepdim = True)
         log_probs = pdf.log_prob(action_batch).sum(-1, keepdim = True)
 
-        ratio = (log_probs - log_probs).exp()
+        ratio = (log_probs - old_log_probs).exp()
 
         cpi_loss = ratio * advantage_batch * mask
         clip_loss = ratio.clamp(1.0 - self.clip, 1.0 + self.clip) * advantage_batch * mask
@@ -205,19 +222,24 @@ class PPO:
 
         self.actor_optimizer.zero_grad()
         (actor_loss + entropy_penalty).backward() # It is trying to minimize instant entropy not tototal entropy. It might be difficult to caculate total entropy for each state?
-
+        torch.nn.utils.clip_grad_norm_(policy.parameters(), self.grad_clip)
         # Gradient clipped is removed for actor
-
         self.actor_optimizer.step()
 
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(critic.parameters(), self.grad_clip)
         # Gradient clipped is removed for critics
-
         self.critic_optimizer.step()
 
         with torch.no_grad():
             kl = kl_divergence(pdf,old_pdf)
+
+        params = list(policy.parameters())
+        for i in range(len(params)):
+            if params[i].mean().isnan():
+                import pdb
+                pdb.set_trace()
 
         return actor_loss.item(), pdf.entropy().mean().item(), critic_loss.item(), ratio.mean().item(), kl.mean().item()
 
@@ -248,9 +270,11 @@ class PPO:
             print("********** Iteration {} ************".format(itr))
 
             sample_start = time.time()
-            if self.highest_reward > (2/3)*self.max_traj_len and curr_anneal > 0.5:
-                curr_anneal *=anneal_rate
-            batch = self.sample_parallel( self.policy, self.critic, self.num_steps, self.max_traj_len, anneal = curr_anneal, term_thresh = curr_thresh)
+            # if self.highest_reward > (2/3)*self.max_traj_len and curr_anneal > 0.5:
+            #     curr_anneal *=anneal_rate
+            curr_anneal = 0.01 + (1 - itr/n_itr)
+            # batch = self.sample_parallel( self.policy, self.critic, self.num_steps, self.max_traj_len, anneal = curr_anneal, term_thresh = curr_thresh)
+            batch = self.sample(self.policy, self.critic, self.num_steps, self.max_traj_len, anneal=curr_anneal, term_thresh=curr_thresh)
             print("time elapsed: {:.2f} s".format(time.time()-start_time))
             sample_time = time.time() - sample_start
             print("sample time elapsed: {:.2f} s".format(sample_time))
@@ -289,9 +313,13 @@ class PPO:
                     entropies.append(entropy)
                     kls.append(kl)
                     losses.append([actor_loss, entropy, critic_loss, ratio, kl])
+                    # Early stopping
+                    if np.max(kls) > 0.5:
+                        print("Max kl reached, stopping optimization early.")
+                        break
 
                 # Early stopping
-                if np.mean(kl) > 0.02:
+                if np.max(kls) > 0.5:
                     print("Max kl reached, stopping optimization early.")
                     break
 
@@ -306,13 +334,15 @@ class PPO:
 
             if logger is not None:
                 evaluate_start = time.time()
-                test = self.sample_parallel( self.policy, self.critic, self.num_steps//2, self.max_traj_len, deterministic = True)
+                # test = self.sample_parallel( self.policy, self.critic, self.num_steps//2, self.max_traj_len, deterministic = True)
+                test = self.sample(self.policy, self.critic, self.num_steps // 2, self.max_traj_len, deterministic=True)
                 eval_time = time.time() - evaluate_start
                 print("evaluate time elapsed: {:.2f} s".format(eval_time))
 
                 avg_eval_reward = np.mean(test.ep_returns)
                 avg_batch_reward = np.mean(batch.ep_returns)
                 avg_ep_len = np.mean(batch.ep_lens)
+                total_ep_len = np.sum(batch.ep_lens)
                 mean_losses = np.mean(losses, axis =0)
                 print("avg eval reward: {:.2f}".format(avg_eval_reward))
 
@@ -322,6 +352,8 @@ class PPO:
                 sys.stdout.write("| %15s | %15s |" % ('Mean Eplen', avg_ep_len) + "\n")
                 sys.stdout.write("| %15s | %15s |" % ('Mean KL Div', "%8.3g" % kl) + "\n")
                 sys.stdout.write("| %15s | %15s |" % ('Mean Entropy', "%8.3g" % entropy) + "\n")
+                sys.stdout.write("| %15s | %15s |" % ('Total Eplen', total_ep_len) + "\n")
+
                 sys.stdout.write("-" * 37 + "\n")
                 sys.stdout.flush()
 
@@ -334,6 +366,7 @@ class PPO:
                 logger.add_scalar("Train/Mean KL Div", kl, itr)
                 logger.add_scalar("Train/Mean Entropy", entropy, itr)
 
+
                 logger.add_scalar("Misc/Critic Loss", mean_losses[2], itr)
                 logger.add_scalar("Misc/Actor Loss", mean_losses[0], itr)
                 # logger.add_scalar("Misc/Mirror Loss", mean_losses[5], itr)
@@ -344,14 +377,14 @@ class PPO:
                 logger.add_scalar("Misc/Evaluation Times", eval_time, itr)
                 logger.add_scalar("Misc/Termination Threshold", curr_thresh, itr)
             if itr % 100 == 0:
-                torch.save(policy.state_dict(), policy_save_path+ "/policy_" + str(itr))
-
+                torch.save(policy, policy_save_path+ "/policy_" + str(itr)+".pt")
+                torch.save(critic, policy_save_path + "/critic_" + str(itr) + ".pt")
 def run_experiment(args):
 
     # env = gym.make('Walker2d-v3')
     env_name = 'gym_Rabbit:Rabbit-v1'
     env = gym.make('gym_Rabbit:Rabbit-v1')
-    policy = Gaussian_FF_Actor(state_dim = 14, action_dim = 4, layers = (128,128))
+    policy = Gaussian_FF_Actor(state_dim = 14, action_dim = 4, layers = (128,128), fixed_std = 10)
     critic = FF_V(state_dim = 14, layers = (128,128))
 
     policy.train()
@@ -380,7 +413,8 @@ def run_experiment(args):
     print(" └ max traj len:   {}".format(args.max_traj_len))
     print()
 
-    algo.train( policy, critic, args.n_itr, logger=logger, anneal_rate=args.anneal)
+    # algo.train( policy, critic, args.n_itr, logger=logger, anneal_rate=args.anneal)
+    algo.train(policy, critic, args.n_itr, logger=logger)
 
 
 
