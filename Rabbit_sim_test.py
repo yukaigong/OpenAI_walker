@@ -6,7 +6,7 @@ from gym.utils import seeding
 import torch
 # env = gym.make('Walker2d-v3')
 
-policy_path = "/home/gyk/Robot/OpenAI_walker/policy_params/2021_11_18_14_04_34/policy_2000.pt"
+policy_path = "/home/gyk/Robot/OpenAI_walker/policy_params/2021_11_28_19_24_57/policy_1800.pt"
 
 policy = torch.load(policy_path)
 env_test = gym.make('gym_Rabbit:Rabbit-v1')

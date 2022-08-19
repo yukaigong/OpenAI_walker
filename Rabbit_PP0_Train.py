@@ -13,7 +13,7 @@ from copy import deepcopy
 import ray
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 from torch.distributions import kl_divergence
-from util.rewards_functions import reward_func_01
+from util.rewards_functions import reward_func_01, reward_func_02
 from datetime import datetime
 
 class PPOBuffer:
@@ -112,7 +112,7 @@ class PPO:
         env.reset()
         env.model.opt.timestep = self.sim_timestep
         # env.model.opt.timestep = 0.001
-        env.frameskip = self.ctrl_timestep/self.sim_timestep
+        env.frame_skip = self.ctrl_timestep/self.sim_timestep
         memory = PPOBuffer(self.gamma, self.lam)
 
         num_steps  = 0
@@ -133,7 +133,8 @@ class PPO:
                 value = critic(state)
                 # time.sleep(0.002)
                 next_state, reward, done, _ = env.step(action.detach().numpy())
-                reward = reward_func_01(next_state[0:7],next_state[7:],action.detach().numpy()) + 1
+                # reward = reward_func_01(next_state[0:7],next_state[7:],action.detach().numpy()) + 1
+                reward = reward_func_02(next_state[0:7], next_state[7:], action.detach().numpy())
                 memory.store(state.numpy(),action.detach().numpy(), reward, value.detach().numpy())
 
                 state = torch.Tensor(next_state)
@@ -210,7 +211,7 @@ class PPO:
             old_log_probs = old_pdf.log_prob(action_batch).sum(-1, keepdim = True)
         log_probs = pdf.log_prob(action_batch).sum(-1, keepdim = True)
 
-        ratio = (log_probs - old_log_probs).exp()
+        ratio = (log_probs - old_log_probs.detach()).exp() # Might be an issue here, the old_log_probs is not detached
 
         cpi_loss = ratio * advantage_batch * mask
         clip_loss = ratio.clamp(1.0 - self.clip, 1.0 + self.clip) * advantage_batch * mask

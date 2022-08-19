@@ -28,9 +28,10 @@ DEFAULT_CAMERA_CONFIG = {
 
 class RabbitEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
+        self.initialized = False # the step function will be called during initialization and the output "done" must be false
         mujoco_env.MujocoEnv.__init__(self, "/home/gyk/Robot/OpenAI_walker/gym-Rabbit/Rabbit.xml", 4)
         utils.EzPickle.__init__(self)
-
+        self.initialized = True
     def step(self, a):
         # posbefore = self.sim.data.qpos[0]
         self.do_simulation(a, self.frame_skip)
@@ -39,10 +40,15 @@ class RabbitEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         # reward = (posafter - posbefore) / self.dt
         # reward += alive_bonus
         # reward -= 1e-3 * np.square(a).sum()
-        # done = not (height > 0.8 and height < 2.0 and ang > -1.0 and ang < 1.0)
-        reward = 0
-        done = False
+    # done = not (height > 0    .8 and height < 2.0 and ang > -1.0 and ang < 1.0)
+
+        done = True
         ob = self._get_obs()
+        reward = self.reward_func(ob,a)
+        if ob[1] > 0.3 and ob[1] < 1.2 or self.initialized == False:
+            done = False
+
+
         return ob, reward, done, {}
 
     def _get_obs(self):
@@ -70,3 +76,6 @@ class RabbitEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         self.viewer.cam.distance = self.model.stat.extent * 0.5
         self.viewer.cam.lookat[2] = 1.15
         self.viewer.cam.elevation = -20
+
+    def reward_func(self,ob,a):
+        pass
